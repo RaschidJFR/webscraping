@@ -8,7 +8,7 @@ def _get_domain(url) -> str:
  tsd, td, tsu = extract(url)
  return f"{td}.{tsu}"
 
-class ResponseResults:
+class RedirectReport:
     
   def _redirect_occurred(response:requests.Response) -> bool:
       if response.history:
@@ -19,20 +19,34 @@ class ResponseResults:
       return False
   
   def __init__(self, response:requests.Response):
-    self.http_status_code = response.status_code
-    self.redirect_domain = ''
-    self.redirect_url = ''
+    self.status_code = response.status_code
+    self.redirected_domain = ''
+    self.redirected_url = ''
     self.error = ''
 
-    if ResponseResults._redirect_occurred(response):
-      self.redirect_url = response.url
-      self.redirect_domain = _get_domain(response.url)
+    if RedirectReport._redirect_occurred(response):
+      self.redirected_url = response.url
+      self.redirected_domain = _get_domain(response.url)
+      self.status_code = response.history[-1].status_code
     
     try:
       response.raise_for_status()
     except requests.exceptions.HTTPError as e:
       self.error = str(e)
     
+class ConnectivityReport:
+  def __init__(self):
+    self.is_domain_active:bool = None
+    self.is_server_reachable:bool = None
+    self.redirect_report:RedirectReport = None
+    self.status_code:int = None
+    
+  @property
+  def is_redirecting(self):
+    if not self.redirect_report:
+      return None
+    else:
+      return bool(self.redirect_report.redirected_domain)
     
 class WebsiteScraper:
   
@@ -40,13 +54,20 @@ class WebsiteScraper:
     self._url = url if url.startswith(('http://', 'https://')) else 'https://' + url
     self._model = model
     self._domain = _get_domain(url)
-    self._is_domain_active: bool = None
-    self._is_connection_ok: bool = None
-    self._response: ResponseResults = None
+    self.connectivity_report = None
     self._text: str = None
     self._summary: str = None
   
-  def is_domain_active(url):
+  def check_domain_active(url):
+      """
+      Checks if the domain of the given URL is active by attempting to resolve its DNS 'A' record.
+
+      Args:
+      url (str): The URL whose domain's DNS records are to be checked.
+
+      Returns:
+      bool: True if the domain has an 'A' record, indicating it is active. False otherwise.
+      """
       domain = _get_domain(url)
       try:
           dns.resolver.resolve(domain, 'A')
@@ -58,7 +79,7 @@ class WebsiteScraper:
       except dns.resolver.NoAnswer:
           return False
       except Exception as e:
-          print (e)
+          print(e)
           return False
         
   def _extract_text_from_html(html, debug=False):
@@ -76,29 +97,33 @@ class WebsiteScraper:
       
       return text
   
+  def test_website_connectivity(self):
+    url = self._url
+    report = ConnectivityReport()
+    report.is_domain_active = WebsiteScraper.check_domain_active(url)
+    if report.is_domain_active:
+  
+      try:
+        httpResponse = requests.head(url, allow_redirects=True, timeout=10)
+        report.status_code = httpResponse.status_code
+        report.is_server_reachable = True
+        report.redirect_report = RedirectReport(httpResponse)
+      except requests.exceptions.Timeout as e:
+        report.is_server_reachable = False
+      except Exception as e:
+        print(e, file=sys.stderr)
+        report.is_server_reachable = False
+    
+    self.connectivity_report = report
+    return report
 
   def scrape_text(self, debug=False):
-    url = self._url
-    self._is_domain_active = WebsiteScraper.is_domain_active(url)
-    if not self._is_domain_active:
-      return
-      
-    try:
-      response = requests.get(url, allow_redirects=True, timeout=10)
-      self._is_connection_ok = True        
-    except requests.exceptions.Timeout as e:
-      self._is_connection_ok = False
-      return
-    except Exception as e:
-      print(e, file=sys.stderr)
-      self._is_connection_ok = False
-      return
+    html = ''
+    connectivity = self.test_website_connectivity()
     
-    self._response = ResponseResults(response)
-    if self._response.error:
-      return ''
-    
-    html = response.text
+    if connectivity.is_server_reachable:
+      response = requests.get(self._url, allow_redirects=True, timeout=10)
+      html = response.text
     
     if debug:
       with open('temp.html', 'w') as file:
@@ -109,28 +134,33 @@ class WebsiteScraper:
 
   def generate_summary(self, debug=False):
     summary: str = ''
+    if not self.connectivity_report:
+      raise('You must first call test_website_connectivity()')
+    
     try:
-      if not self._is_domain_active:
+      if not self.connectivity_report.is_domain_active:
         summary = "[Domain inactive]"
-      elif not self._is_connection_ok:
+      elif not self.connectivity_report.is_server_reachable:
         summary = "[Website server unreachable]"
       else: 
         
-        if debug and self._response.redirect_domain:
-          print(f"Redirect: {self._domain} -> {self._response.redirect_domain}")
+        redirect = ''
+        if debug and self.connectivity_report.is_redirecting:
+          redirect = self.connectivity_report.redirect_report.redirected_domain
+          print(f"Redirect: {self._domain} -> {redirect}")
               
-        code = self._response.http_status_code
+        code = self.connectivity_report.status_code
         if code == 404:
           summary = "[Website not found]"
         elif code == 403 or code == 406:
           summary = "[Website scraping blocked]"
         elif code >= 502 and code < 600:
           summary = "[Website not working]"
-        elif code > 400:
-          print(self._response.error)
+        elif code >= 400:
+          print(self.connectivity_report.redirect_report.error)
           summary = ''
         elif self._text:
-          if self._response.redirected_domain: summary = f"[{self._response.redirected_domain}] "
+          if redirect: summary = f"[{redirect}] "
           summary += self._model.summarize(self._text)
         else:
           print(f"No text fetched for {self._domain}")
