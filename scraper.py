@@ -50,9 +50,8 @@ class ConnectivityReport:
     
 class WebsiteScraper:
   
-  def __init__(self, url:str, model):
+  def __init__(self, url:str):
     self._url = url if url.startswith(('http://', 'https://')) else 'https://' + url
-    self._model = model
     self._domain = _get_domain(url)
     self.connectivity_report = None
     self._text: str = None
@@ -131,43 +130,3 @@ class WebsiteScraper:
 
     self._text = WebsiteScraper._extract_text_from_html(html, debug)
     return self._text
-
-  def generate_summary(self, debug=False):
-    summary: str = ''
-    if not self.connectivity_report:
-      raise('You must first call test_website_connectivity()')
-    
-    try:
-      if not self.connectivity_report.is_domain_active:
-        summary = "[Domain inactive]"
-      elif not self.connectivity_report.is_server_reachable:
-        summary = "[Website server unreachable]"
-      else: 
-        
-        redirect = ''
-        if debug and self.connectivity_report.is_redirecting:
-          redirect = self.connectivity_report.redirect_report.redirected_domain
-          print(f"Redirect: {self._domain} -> {redirect}")
-              
-        code = self.connectivity_report.status_code
-        if code == 404:
-          summary = "[Website not found]"
-        elif code == 403 or code == 406:
-          summary = "[Website scraping blocked]"
-        elif code >= 502 and code < 600:
-          summary = "[Website not working]"
-        elif code >= 400:
-          print(self.connectivity_report.redirect_report.error)
-          summary = ''
-        elif self._text:
-          if redirect: summary = f"[{redirect}] "
-          summary += self._model.summarize(self._text)
-        else:
-          print(f"No text fetched for {self._domain}")
-        
-    except Exception as e:
-      print(e, file=sys.stderr)
-      summary = ''
-    finally:
-      self._summary = summary
-      return self._summary
