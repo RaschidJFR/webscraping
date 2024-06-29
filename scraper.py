@@ -38,6 +38,7 @@ class ConnectivityReport:
   def __init__(self):
     self.is_domain_active:bool = None
     self.is_server_reachable:bool = None
+    self.is_website_active:bool = None
     self.redirect_report:RedirectReport = None
     self.status_code:int = None
     
@@ -49,6 +50,8 @@ class ConnectivityReport:
       return bool(self.redirect_report.redirected_domain)
     
 class WebsiteScraper:
+  _agent = "Mozilla/5.0 (iPad; CPU OS 12_2 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Mobile/15E148"
+  _headers={"User-Agent": f"{_agent}"}
   
   def __init__(self, url:str):
     self._url = url if url.startswith(('http://', 'https://')) else 'https://' + url
@@ -103,16 +106,16 @@ class WebsiteScraper:
     if report.is_domain_active:
   
       try:
-        httpResponse = requests.head(url, allow_redirects=True, timeout=10)
+        httpResponse = requests.head(url, allow_redirects=True, timeout=10, headers=self._headers)
         report.status_code = httpResponse.status_code
         report.is_server_reachable = True
         report.redirect_report = RedirectReport(httpResponse)
+        report.is_website_active = not bool(report.redirect_report.error)
       except requests.exceptions.Timeout as e:
         report.is_server_reachable = False
       except Exception as e:
         print(e, file=sys.stderr)
         report.is_server_reachable = False
-    
     self.connectivity_report = report
     return report
 
@@ -121,8 +124,16 @@ class WebsiteScraper:
     connectivity = self.test_website_connectivity()
     
     if connectivity.is_server_reachable:
-      response = requests.get(self._url, allow_redirects=True, timeout=10)
-      html = response.text
+      try:
+        response = requests.get(self._url, allow_redirects=True, timeout=10, headers=self._headers)
+        html = response.text
+      
+      # TODO: retry
+      except requests.exceptions.Timeout as e:
+        self.connectivity_report.is_server_reachable = False
+      except Exception as e:
+        print(e, file=sys.stderr)
+        self.connectivity_report.is_server_reachable = False
     
     if debug:
       with open('temp.html', 'w') as file:
