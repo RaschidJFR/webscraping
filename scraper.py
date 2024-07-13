@@ -43,7 +43,7 @@ class ConnectivityReport:
     self.is_server_reachable:bool = None
     """`True` if an HTTP request was retrieved regardless of its status code."""
     self.is_website_accessible:bool = None
-    """`True` if a response with no error was received."""
+    """`True` if a response with no error was received. You should check `status_code` or `error` for the exact reason."""
     self.redirect_report:RedirectReport = None
     """Data structure to store information about redirects."""
     self.status_code:int = None
@@ -87,7 +87,7 @@ class ConnectivityReport:
         if not self.is_server_reachable:
           result_msg += "[Server unreachable]"
         elif not self.is_website_accessible:
-          result_msg += f"[Site inaccessible: {self.error}]"
+          result_msg += f"[Could not access site: {self.error}]"
 
         else:
           result_msg += "[Site accessible: OK]"
@@ -140,7 +140,7 @@ class WebsiteScraper:
       text = soup.get_text(separator='\n')      
       return text
   
-  def test_connectivity(self):
+  def test_connectivity(self, abort_on_405:bool=False):
     """
     Tests the connectivity of the website by checking the domain's activity and server's response.
 
@@ -149,6 +149,9 @@ class WebsiteScraper:
     to an HTTP error, a GET request is attempted. 
     
     The method updates the `connectivity_report` attribute of the instance with the results.
+    
+    Args:
+      :abort_on_405 (bool): Useful to filter parked domains as this is a common response but can lead to false negatives.
 
     Returns:
       ConnectivityReport: An object containing details about the connectivity test, including
@@ -168,7 +171,8 @@ class WebsiteScraper:
         except requests.exceptions.HTTPError as e:
           try:
             # 405 is common in parked domains
-            if httpResponse.status_code == 405: raise e
+            if httpResponse.status_code == 405 and abort_on_405: 
+              raise e
             
             # try a different method
             httpResponse = requests.get(url, allow_redirects=True, timeout=10, headers=self._headers)
