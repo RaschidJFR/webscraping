@@ -18,6 +18,9 @@ def summarize(text, max_output_length=150, min_output_length=30):
     Returns:
     str: The summarized text.
     """
+    
+    if not text: 
+        return ''
 
     # Tokenize and truncate input text
     inputs = tokenizer(text, max_length=1024, truncation=True, return_tensors="pt")

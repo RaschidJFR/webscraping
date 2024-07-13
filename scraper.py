@@ -1,12 +1,12 @@
 import requests
 from bs4 import BeautifulSoup
-import sys
+from sys import stderr
 import dns.resolver
 from tldextract import extract
 
 def _get_domain(url) -> str:
   """Extract the domain from a url."""
-  tsd, td, tsu = extract(url)
+  _, td, tsu = extract(url)
   return f"{td}.{tsu}"
 
 class RedirectReport:
@@ -85,12 +85,12 @@ class ConnectivityReport:
           result_msg = f"[{self.domain} -> {redirect}]: "
         
         if not self.is_server_reachable:
-          result_msg += "[Website server unreachable]"
+          result_msg += "[Server unreachable]"
         elif not self.is_website_accessible:
           result_msg += f"[Site inaccessible: {self.error}]"
 
         else:
-          result_msg += "OK"
+          result_msg += "[Site accessible: OK]"
         
     except Exception as e:
       print(e)
@@ -104,7 +104,6 @@ class WebsiteScraper:
   
   def __init__(self, url:str):
     self._url = url if url.startswith(('http://', 'https://')) else 'https://' + url
-    self._domain = _get_domain(url)
     self.connectivity_report = None
   
   def check_domain_active(url):
@@ -163,26 +162,30 @@ class WebsiteScraper:
   
       try:
         httpResponse = requests.head(url, allow_redirects=True, timeout=10, headers=self._headers)
+        report.is_server_reachable = True
         try:
           httpResponse.raise_for_status()
         except requests.exceptions.HTTPError as e:
-          # try a different method
-          httpResponse = requests.get(url, allow_redirects=True, timeout=10, headers=self._headers)
           try:
+            # 405 is common in parked domains
+            if httpResponse.status_code == 405: raise e
+            
+            # try a different method
+            httpResponse = requests.get(url, allow_redirects=True, timeout=10, headers=self._headers)
             httpResponse.raise_for_status()
           except requests.exceptions.HTTPError as e:
             report.error = str(e)
         
         report.status_code = httpResponse.status_code
-        report.is_server_reachable = True
         report.redirect_report = RedirectReport(httpResponse)
         report.is_website_accessible = not bool(report.error)
         
       except requests.exceptions.Timeout as e:
         report.is_server_reachable = False
       except Exception as e:
-        print(e, file=sys.stderr)
+        print(e, file=stderr)
         report.is_server_reachable = False
+    
     self.connectivity_report = report
     return report
 
