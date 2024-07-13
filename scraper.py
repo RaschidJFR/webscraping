@@ -5,10 +5,12 @@ import dns.resolver
 from tldextract import extract
 
 def _get_domain(url) -> str:
- tsd, td, tsu = extract(url)
- return f"{td}.{tsu}"
+  """Extract the domain from a url."""
+  tsd, td, tsu = extract(url)
+  return f"{td}.{tsu}"
 
 class RedirectReport:
+  """Data structure to store information about redirects"""
     
   def _redirect_occurred(response:requests.Response) -> bool:
       if response.history:
@@ -20,8 +22,11 @@ class RedirectReport:
   
   def __init__(self, response:requests.Response):
     self.status_code = response.status_code
+    """Status code of the last redirect (before the end destination). Empty if there was no redirect."""
     self.redirected_domain = ''
+    """The final domain to which the request was redirected to. Empty if there was no redirect."""
     self.redirected_url = ''
+    """The final url to which the request was redirected to. Empty if there was no redirect."""
 
     if RedirectReport._redirect_occurred(response):
       self.redirected_url = response.url
@@ -31,12 +36,20 @@ class RedirectReport:
 class ConnectivityReport:
   
   def __init__(self, url:str):
+    self.url:str = url
+    """Original url to test."""
     self.is_domain_active:bool = None
+    """`True` if the domain could be resolved."""
     self.is_server_reachable:bool = None
+    """`True` if an HTTP request was retrieved regardless of its status code."""
     self.is_website_accessible:bool = None
+    """`True` if a response with no error was received."""
     self.redirect_report:RedirectReport = None
+    """Data structure to store information about redirects."""
     self.status_code:int = None
+    """Final status code after all redirects."""
     self.error: str = None
+    """Final error messsage after all redirects."""
   
   def __str__(self) -> str:
     return self._decode()
@@ -47,14 +60,18 @@ class ConnectivityReport:
     
   @property
   def is_redirecting(self):
+    """Return `True` if a main domain redirect is detected.
+    TODO: Distinguish between domain, subdomain, and path redirects.
+    """
     if not self.redirect_report:
       return None
     else:
       return bool(self.redirect_report.redirected_domain)
     
   def _decode(self) -> str:
-    """
-    Returns s human-readable summary of the report
+    """Returns a human-readable summary of the report
+    
+    Used under the hood for `str(ConnectivityReport)`
     """
     result_msg: str = ''
     
@@ -125,6 +142,20 @@ class WebsiteScraper:
       return text
   
   def test_connectivity(self):
+    """
+    Tests the connectivity of the website by checking the domain's activity and server's response.
+
+    This method first checks if the domain of the URL is active. If active, it attempts to connect
+    to the server using a HEAD request to minimize data transfer. If the HEAD request fails due
+    to an HTTP error, a GET request is attempted. 
+    
+    The method updates the `connectivity_report` attribute of the instance with the results.
+
+    Returns:
+      ConnectivityReport: An object containing details about the connectivity test, including
+      whether the domain is active, the server is reachable, any redirections, and if the website
+      is accessible without errors.
+    """
     url = self._url
     report = ConnectivityReport(url)
     report.is_domain_active = WebsiteScraper.check_domain_active(url)
@@ -156,6 +187,13 @@ class WebsiteScraper:
     return report
 
   def scrape_text(self) -> str:
+    """Test connectivity and extract a plan text from the website's HTML
+    
+    The function `test_connectivity()` will be called if it hasn't been called before.
+    
+    Returns:
+      str: The text extracted from the HTML or an empty string if a connectivity issue was found.
+    """
     html = ''
     connectivity = self.connectivity_report
     if not connectivity:
