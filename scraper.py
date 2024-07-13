@@ -12,8 +12,8 @@ class RedirectReport:
     
   def _redirect_occurred(response:requests.Response) -> bool:
       if response.history:
-          original_domain = _get_domain(response.url)
-          redirect_domain = _get_domain(response.history[-1].url)
+          original_domain = _get_domain(response.history[0].url)
+          redirect_domain = _get_domain(response.url)
 
           return original_domain != redirect_domain
       return False
@@ -22,25 +22,24 @@ class RedirectReport:
     self.status_code = response.status_code
     self.redirected_domain = ''
     self.redirected_url = ''
-    self.error = ''
 
     if RedirectReport._redirect_occurred(response):
       self.redirected_url = response.url
       self.redirected_domain = _get_domain(response.url)
       self.status_code = response.history[-1].status_code
     
-    try:
-      response.raise_for_status()
-    except requests.exceptions.HTTPError as e:
-      self.error = str(e)
-    
 class ConnectivityReport:
-  def __init__(self):
+  def __init__(self, domain:str):
+    self.domain:str = _get_domain(domain)
     self.is_domain_active:bool = None
     self.is_server_reachable:bool = None
     self.is_website_active:bool = None
     self.redirect_report:RedirectReport = None
     self.status_code:int = None
+    self.error: str = None
+  
+  def __str__(self) -> str:
+    return self._decode()
     
   @property
   def is_redirecting(self):
@@ -48,6 +47,35 @@ class ConnectivityReport:
       return None
     else:
       return bool(self.redirect_report.redirected_domain)
+    
+  def _decode(self) -> str:
+    """
+    Returns s human-readable summary of the report
+    """
+    result_msg: str = ''
+    
+    try:
+      if not self.is_domain_active:
+        result_msg = "[Domain inactive]"
+      else:
+        
+        if self.is_redirecting:
+          redirect = self.redirect_report.redirected_domain
+          result_msg = f"[{self.domain} -> {redirect}]: "
+        
+        if not self.is_server_reachable:
+          result_msg += "[Website server unreachable]"
+        elif not self.is_website_active:
+          result_msg += f"[Site inactive: {self.error}]"
+
+        else:
+          result_msg += "OK"
+        
+    except Exception as e:
+      print(e)
+      result_msg = '[Unknown Error]'
+    finally:
+      return result_msg
     
 class WebsiteScraper:
   _agent = "Mozilla/5.0 (iPad; CPU OS 12_2 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Mobile/15E148"
@@ -101,16 +129,28 @@ class WebsiteScraper:
   
   def test_website_connectivity(self):
     url = self._url
-    report = ConnectivityReport()
+    domain = _get_domain(url)
+    report = ConnectivityReport(domain)
     report.is_domain_active = WebsiteScraper.check_domain_active(url)
     if report.is_domain_active:
   
       try:
         httpResponse = requests.head(url, allow_redirects=True, timeout=10, headers=self._headers)
+        try:
+          httpResponse.raise_for_status()
+        except requests.exceptions.HTTPError as e:
+          # try a different method
+          httpResponse = requests.get(url, allow_redirects=True, timeout=10, headers=self._headers)
+          try:
+            httpResponse.raise_for_status()
+          except requests.exceptions.HTTPError as e:
+            report.error = str(e)
+        
         report.status_code = httpResponse.status_code
         report.is_server_reachable = True
         report.redirect_report = RedirectReport(httpResponse)
-        report.is_website_active = not bool(report.redirect_report.error)
+        report.is_website_active = not bool(report.error)
+        
       except requests.exceptions.Timeout as e:
         report.is_server_reachable = False
       except Exception as e:
@@ -119,7 +159,7 @@ class WebsiteScraper:
     self.connectivity_report = report
     return report
 
-  def scrape_text(self, debug=False):
+  def scrape_text(self, debug=False) -> str:
     html = ''
     connectivity = self.test_website_connectivity()
     
