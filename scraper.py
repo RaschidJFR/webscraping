@@ -29,17 +29,21 @@ class RedirectReport:
       self.status_code = response.history[-1].status_code
     
 class ConnectivityReport:
-  def __init__(self, domain:str):
-    self.domain:str = _get_domain(domain)
+  
+  def __init__(self, url:str):
     self.is_domain_active:bool = None
     self.is_server_reachable:bool = None
-    self.is_website_active:bool = None
+    self.is_website_accessible:bool = None
     self.redirect_report:RedirectReport = None
     self.status_code:int = None
     self.error: str = None
   
   def __str__(self) -> str:
     return self._decode()
+  
+  @property
+  def domain(self) -> str:
+    return _get_domain(self.url)
     
   @property
   def is_redirecting(self):
@@ -65,8 +69,8 @@ class ConnectivityReport:
         
         if not self.is_server_reachable:
           result_msg += "[Website server unreachable]"
-        elif not self.is_website_active:
-          result_msg += f"[Site inactive: {self.error}]"
+        elif not self.is_website_accessible:
+          result_msg += f"[Site inaccessible: {self.error}]"
 
         else:
           result_msg += "OK"
@@ -85,8 +89,6 @@ class WebsiteScraper:
     self._url = url if url.startswith(('http://', 'https://')) else 'https://' + url
     self._domain = _get_domain(url)
     self.connectivity_report = None
-    self._text: str = None
-    self._summary: str = None
   
   def check_domain_active(url):
       """
@@ -112,25 +114,19 @@ class WebsiteScraper:
           print(e)
           return False
         
-  def _extract_text_from_html(html, debug=False):
+  def _extract_text_from_html(html):
       soup = BeautifulSoup(html, 'html.parser')
       
       # Ignore link text
       for a in soup.find_all('a'):
         a.decompose()
       
-      text = soup.get_text(separator='\n')
-      
-      if debug:
-          with open('temp.txt', 'w') as file:
-              file.write(text)
-      
+      text = soup.get_text(separator='\n')      
       return text
   
-  def test_website_connectivity(self):
+  def test_connectivity(self):
     url = self._url
-    domain = _get_domain(url)
-    report = ConnectivityReport(domain)
+    report = ConnectivityReport(url)
     report.is_domain_active = WebsiteScraper.check_domain_active(url)
     if report.is_domain_active:
   
@@ -149,7 +145,7 @@ class WebsiteScraper:
         report.status_code = httpResponse.status_code
         report.is_server_reachable = True
         report.redirect_report = RedirectReport(httpResponse)
-        report.is_website_active = not bool(report.error)
+        report.is_website_accessible = not bool(report.error)
         
       except requests.exceptions.Timeout as e:
         report.is_server_reachable = False
@@ -159,25 +155,14 @@ class WebsiteScraper:
     self.connectivity_report = report
     return report
 
-  def scrape_text(self, debug=False) -> str:
+  def scrape_text(self) -> str:
     html = ''
-    connectivity = self.test_website_connectivity()
+    connectivity = self.connectivity_report
+    if not connectivity:
+      connectivity = self.test_connectivity()
     
-    if connectivity.is_server_reachable:
-      try:
-        response = requests.get(self._url, allow_redirects=True, timeout=10, headers=self._headers)
-        html = response.text
+    if connectivity.is_website_accessible:
+      response = requests.get(self._url, allow_redirects=True, timeout=10, headers=self._headers)
+      html = response.text
       
-      # TODO: retry
-      except requests.exceptions.Timeout as e:
-        self.connectivity_report.is_server_reachable = False
-      except Exception as e:
-        print(e, file=sys.stderr)
-        self.connectivity_report.is_server_reachable = False
-    
-    if debug:
-      with open('temp.html', 'w') as file:
-          file.write(html)
-
-    self._text = WebsiteScraper._extract_text_from_html(html, debug)
-    return self._text
+    return WebsiteScraper._extract_text_from_html(html)
