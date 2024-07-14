@@ -138,31 +138,59 @@ class TestWebsiteScraper(unittest.TestCase):
   @patch('requests.get')
   @patch('requests.head')
   @patch.object(WebsiteScraper, 'check_domain_active', mock_check_domain_active)
-  def test_retry_on_405(self, mock_head, mock_get, MockRedirectReport):
+  def test_retry_405(self, mock_head, mock_get, MockRedirectReport):
     
     e =HTTPError()
     e.errno = 405
     e.strerror = 'Not Found'
     
-    response = Mock()
-    response.status_code = 405
-    response.history = []
-    response.url = self.url
-    response.raise_for_status = Mock(side_effect=e)
+    response_405 = Mock()
+    response_405.status_code = 405
+    response_405.history = []
+    response_405.url = self.url
+    response_405.raise_for_status = Mock(side_effect=e)
     
-    mock_head.return_value = response
-    mock_get.return_value = response
+    response_200 = Mock()
+    response_200.status_code = 200
+    response_200.history = []
+    response_200.url = self.url
+    
+    mock_head.return_value = response_405
+    mock_get.return_value = response_200
 
     report = self.scraper.test_connectivity(abort_on_405=False)
+    self.assertTrue(report.is_website_accessible)
     
-    self.assertTrue(mock_get.called)
-    self.assertFalse(report.is_website_accessible)
-    
-    mock_get.reset_mock()
     report = self.scraper.test_connectivity(abort_on_405=True)
-    
-    self.assertFalse(mock_get.called)
     self.assertFalse(report.is_website_accessible)
+    
+    
+  @patch('scraper.RedirectReport') 
+  @patch('requests.get')
+  @patch('requests.head')
+  @patch.object(WebsiteScraper, 'check_domain_active', mock_check_domain_active)
+  def test_retry_403(self, mock_head, mock_get, MockRedirectReport):
+    
+    e =HTTPError()
+    e.errno = 403
+    e.strerror = 'Not Found'
+    
+    response_403 = Mock()
+    response_403.status_code = 403
+    response_403.history = []
+    response_403.url = self.url
+    response_403.raise_for_status = Mock(side_effect=e)
+    
+    response_200 = Mock()
+    response_200.status_code = 200
+    response_200.history = []
+    response_200.url = self.url
+    
+    mock_head.return_value = response_403
+    mock_get.return_value = response_200
+
+    report = self.scraper.test_connectivity()
+    self.assertTrue(report.is_website_accessible)
 
 if __name__ == '__main__':
     unittest.main()
