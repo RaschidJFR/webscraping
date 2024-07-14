@@ -106,7 +106,7 @@ class WebsiteScraper:
     self._url = url if url.startswith(('http://', 'https://')) else 'https://' + url
     self.connectivity_report = None
   
-  def check_domain_active(url):
+  def check_domain_active(url) -> bool:
       """
       Checks if the domain of the given URL is active by attempting to resolve its DNS 'A' record.
 
